@@ -9,6 +9,7 @@ import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import HomeScreen from '../screens/HomeScreen';
 import DietScreen from '../screens/DietScreen';
+import MealScreen from '../screens/MealScreen';
 import ExerciseScreen from '../screens/ExerciseScreen';
 import ScheduleScreen from '../screens/ScheduleScreen';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -53,7 +54,7 @@ const MainNavigator = () => {
       />
       <Tab.Screen 
         name="Diet" 
-        component={DietScreen} 
+        component={MealScreen} 
         options={{
           tabBarIcon: ({ color, size }) => (
             <MaterialIcons name="restaurant" color={color} size={size} />

@@ -17,9 +17,9 @@ const HomeScreen = ({ navigation }) => {
 
   // Mocked data for demonstration
   const achievements = [
-    { id: 1, name: '5-Day Streak', icon: 'fire' },
-    { id: 2, name: 'Goal Achieved', icon: 'trophy' },
-    { id: 3, name: 'Early Bird', icon: 'medal' },
+    { id: 1, name: '5-Day Streak', icon: 'whatshot' },
+    { id: 2, name: 'Goal Achieved', icon: 'emoji-events' },
+    { id: 3, name: 'Early Bird', icon: 'star' },
   ];
 
   const schedule = [

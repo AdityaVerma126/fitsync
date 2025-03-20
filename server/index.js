@@ -51,9 +51,10 @@ const mealSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   name: { type: String, required: true },
   calories: { type: Number, required: true },
-  protein: { type: Number },
-  carbs: { type: Number },
-  fat: { type: Number },
+  protein: { type: Number, default: 0 },
+  carbs: { type: Number, default: 0 },
+  fat: { type: Number, default: 0 },
+  mealType: { type: String, enum: ['breakfast', 'lunch', 'dinner', 'snack'], default: 'breakfast' },
   date: { type: Date, default: Date.now }
 });
 
@@ -240,7 +241,7 @@ app.get('/api/meals', auth, async (req, res) => {
 
 app.post('/api/meals', auth, async (req, res) => {
   try {
-    const { name, calories, protein, carbs, fat } = req.body;
+    const { name, calories, protein, carbs, fat, mealType, date } = req.body;
     
     const meal = new Meal({
       userId: req.userId,
@@ -248,11 +249,31 @@ app.post('/api/meals', auth, async (req, res) => {
       calories,
       protein,
       carbs,
-      fat
+      fat,
+      mealType,
+      date: date || new Date()
     });
     
     await meal.save();
     res.status(201).json(meal);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.put('/api/meals/:id', auth, async (req, res) => {
+  try {
+    const meal = await Meal.findOneAndUpdate(
+      { _id: req.params.id, userId: req.userId },
+      req.body,
+      { new: true }
+    );
+    
+    if (!meal) {
+      return res.status(404).json({ message: 'Meal not found' });
+    }
+    
+    res.json(meal);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }

@@ -147,6 +147,16 @@ class MongoService {
     }
   }
 
+  async updateMeal(id, mealData) {
+    try {
+      const response = await axios.put(`${BASE_URL}/api/meals/${id}`, mealData, this.getAuthHeader());
+      return response.data;
+    } catch (error) {
+      console.error('Error updating meal:', error);
+      throw error.response?.data || error;
+    }
+  }
+
   async deleteMeal(id) {
     try {
       const response = await axios.delete(`${BASE_URL}/api/meals/${id}`, this.getAuthHeader());
