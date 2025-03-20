@@ -3,8 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Base URL for our local API server
 // For development on same machine, use your machine's IP instead of localhost
-// Example: 'http://192.168.1.100:5000'
-const BASE_URL = 'http://192.168.1.8:5000'; // Use 10.0.2.2 for Android emulator to access host machine
+// Example: 'http://192.168.1.100:5001'
+const BASE_URL = 'http://192.168.1.8:5001'; // Use 10.0.2.2 for Android emulator to access host machine
 
 class MongoService {
   constructor() {
@@ -83,6 +83,17 @@ class MongoService {
     
     await AsyncStorage.removeItem('auth_token');
     await AsyncStorage.removeItem('user_info');
+  }
+
+  // User profile methods
+  async getUserProfile() {
+    try {
+      const response = await axios.get(`${BASE_URL}/api/users/profile`, this.getAuthHeader());
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      throw error.response?.data || error;
+    }
   }
 
   // Exercise methods
@@ -184,6 +195,16 @@ class MongoService {
       return response.data;
     } catch (error) {
       console.error('Error adding event:', error);
+      throw error.response?.data || error;
+    }
+  }
+
+  async updateEvent(id, eventData) {
+    try {
+      const response = await axios.put(`${BASE_URL}/api/events/${id}`, eventData, this.getAuthHeader());
+      return response.data;
+    } catch (error) {
+      console.error('Error updating event:', error);
       throw error.response?.data || error;
     }
   }

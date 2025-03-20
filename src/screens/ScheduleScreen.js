@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -8,38 +8,65 @@ import {
   TouchableOpacity, 
   TextInput,
   Modal,
-  Alert
+  Alert,
+  ActivityIndicator
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Calendar } from 'react-native-calendars';
+import mongoService from '../services/mongoService';
 
 const ScheduleScreen = () => {
   const currentDate = new Date();
   const formattedDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
   
   const [selectedDate, setSelectedDate] = useState(formattedDate);
-  const [events, setEvents] = useState([
-    { id: 1, title: 'Gym Session', time: '6:00 PM - 7:00 PM', completed: false, date: formattedDate },
-    { id: 2, title: 'Team Meeting', time: '2:00 PM - 3:30 PM', completed: false, date: formattedDate },
-    { id: 3, title: 'Dentist Appointment', time: '4:30 PM - 5:30 PM', completed: false, date: formattedDate },
-  ]);
+  const [events, setEvents] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   
   const [modalVisible, setModalVisible] = useState(false);
   const [newEvent, setNewEvent] = useState({
     title: '',
+    description: '',
     startTime: '',
     endTime: '',
+    type: 'event'
   });
+
+  // Fetch events from database
+  useEffect(() => {
+    fetchEvents();
+  }, []);
+
+  const fetchEvents = async () => {
+    setIsLoading(true);
+    try {
+      const data = await mongoService.getEvents();
+      if (Array.isArray(data)) {
+        setEvents(data);
+      } else {
+        console.error('Expected array of events but got:', data);
+        setEvents([]);
+      }
+    } catch (error) {
+      console.error('Error fetching events:', error);
+      Alert.alert('Error', 'Failed to fetch events');
+      setEvents([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
   
   // Create marked dates object for calendar
   const markedDates = {};
   events.forEach(event => {
-    if (markedDates[event.date]) {
-      markedDates[event.date].dots.push({ key: event.id, color: '#4285F4' });
+    const eventDate = new Date(event.date).toISOString().split('T')[0];
+    
+    if (markedDates[eventDate]) {
+      markedDates[eventDate].dots.push({ key: event._id, color: '#4285F4' });
     } else {
-      markedDates[event.date] = {
-        dots: [{ key: event.id, color: '#4285F4' }],
+      markedDates[eventDate] = {
+        dots: [{ key: event._id, color: '#4285F4' }],
       };
     }
   });
@@ -51,12 +78,31 @@ const ScheduleScreen = () => {
     selectedColor: '#4285F4',
   };
 
-  const filteredEvents = events.filter(event => event.date === selectedDate);
+  const filteredEvents = events.filter(event => {
+    const eventDate = new Date(event.date).toISOString().split('T')[0];
+    return eventDate === selectedDate;
+  });
 
-  const toggleEventCompleted = (id) => {
-    setEvents(events.map(event => 
-      event.id === id ? { ...event, completed: !event.completed } : event
-    ));
+  const toggleEventCompleted = async (id) => {
+    try {
+      const eventToToggle = events.find(event => event._id === id);
+      if (!eventToToggle) return;
+      
+      const updatedEvent = { 
+        ...eventToToggle, 
+        completed: !eventToToggle.completed 
+      };
+      
+      await mongoService.updateEvent(id, updatedEvent);
+      
+      // Update local state
+      setEvents(events.map(event => 
+        event._id === id ? { ...event, completed: !event.completed } : event
+      ));
+    } catch (error) {
+      console.error('Error toggling event completion:', error);
+      Alert.alert('Error', 'Failed to update event');
+    }
   };
 
   const deleteEvent = (id) => {
@@ -68,15 +114,21 @@ const ScheduleScreen = () => {
         { 
           text: 'Delete', 
           style: 'destructive',
-          onPress: () => {
-            setEvents(events.filter(event => event.id !== id));
+          onPress: async () => {
+            try {
+              await mongoService.deleteEvent(id);
+              setEvents(events.filter(event => event._id !== id));
+            } catch (error) {
+              console.error('Error deleting event:', error);
+              Alert.alert('Error', 'Failed to delete event');
+            }
           }
         },
       ]
     );
   };
 
-  const handleAddEvent = () => {
+  const handleAddEvent = async () => {
     // Validate inputs
     if (!newEvent.title.trim()) {
       Alert.alert('Error', 'Please enter an event title');
@@ -95,22 +147,47 @@ const ScheduleScreen = () => {
       return;
     }
     
-    const newId = events.length > 0 ? Math.max(...events.map(e => e.id)) + 1 : 1;
-    
-    setEvents([
-      ...events, 
-      { 
-        id: newId, 
-        title: newEvent.title.trim(), 
-        time: `${newEvent.startTime} - ${newEvent.endTime}`, 
-        completed: false,
-        date: selectedDate
-      }
-    ]);
-    
-    setNewEvent({ title: '', startTime: '', endTime: '' });
-    setModalVisible(false);
+    try {
+      const eventToAdd = {
+        title: newEvent.title.trim(),
+        description: newEvent.description.trim(),
+        startTime: newEvent.startTime,
+        endTime: newEvent.endTime,
+        type: newEvent.type,
+        date: new Date(selectedDate),
+        completed: false
+      };
+      
+      // Add to database
+      const addedEvent = await mongoService.addEvent(eventToAdd);
+      
+      // Update local state
+      setEvents([...events, addedEvent]);
+      
+      // Reset form
+      setNewEvent({
+        title: '',
+        description: '',
+        startTime: '',
+        endTime: '',
+        type: 'event'
+      });
+      setModalVisible(false);
+    } catch (error) {
+      console.error('Error adding event:', error);
+      Alert.alert('Error', 'Failed to add event');
+    }
   };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={[styles.container, styles.loadingContainer]}>
+        <StatusBar style="dark" />
+        <ActivityIndicator size="large" color="#4A90E2" />
+        <Text style={styles.loadingText}>Loading events...</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -118,8 +195,11 @@ const ScheduleScreen = () => {
       
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Schedule</Text>
-        <TouchableOpacity style={styles.filterButton}>
-          <MaterialIcons name="search" size={24} color="#333" />
+        <TouchableOpacity 
+          style={styles.addButton}
+          onPress={() => setModalVisible(true)}
+        >
+          <MaterialIcons name="add" size={24} color="#FFF" />
         </TouchableOpacity>
       </View>
       
@@ -154,15 +234,15 @@ const ScheduleScreen = () => {
       </View>
       
       <View style={styles.eventsContainer}>
-        <Text style={styles.sectionTitle}>Today's Schedule</Text>
+        <Text style={styles.sectionTitle}>Events for {selectedDate}</Text>
         
         <ScrollView style={styles.eventsList}>
           {filteredEvents.length > 0 ? (
             filteredEvents.map((event) => (
-              <View key={event.id} style={styles.eventItem}>
+              <View key={event._id} style={styles.eventItem}>
                 <TouchableOpacity
                   style={styles.eventCheckbox}
-                  onPress={() => toggleEventCompleted(event.id)}
+                  onPress={() => toggleEventCompleted(event._id)}
                 >
                   <View style={[
                     styles.checkbox, 
@@ -181,12 +261,15 @@ const ScheduleScreen = () => {
                   ]}>
                     {event.title}
                   </Text>
-                  <Text style={styles.eventTime}>{event.time}</Text>
+                  <Text style={styles.eventTime}>{event.startTime} - {event.endTime}</Text>
+                  {event.description ? (
+                    <Text style={styles.eventDescription}>{event.description}</Text>
+                  ) : null}
                 </View>
                 
                 <TouchableOpacity
                   style={styles.eventDeleteButton}
-                  onPress={() => deleteEvent(event.id)}
+                  onPress={() => deleteEvent(event._id)}
                 >
                   <MaterialIcons name="delete-outline" size={24} color="#999" />
                 </TouchableOpacity>
@@ -196,17 +279,16 @@ const ScheduleScreen = () => {
             <View style={styles.noEventsContainer}>
               <MaterialIcons name="event-busy" size={48} color="#CCC" />
               <Text style={styles.noEventsText}>No events scheduled for this day</Text>
+              <TouchableOpacity 
+                style={styles.addEventButtonEmpty}
+                onPress={() => setModalVisible(true)}
+              >
+                <Text style={styles.addEventButtonText}>Add Event</Text>
+              </TouchableOpacity>
             </View>
           )}
         </ScrollView>
       </View>
-      
-      <TouchableOpacity 
-        style={styles.addButton}
-        onPress={() => setModalVisible(true)}
-      >
-        <MaterialIcons name="add" size={30} color="#FFF" />
-      </TouchableOpacity>
       
       {/* Add Event Modal */}
       <Modal
@@ -220,52 +302,91 @@ const ScheduleScreen = () => {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Add New Event</Text>
               <TouchableOpacity
+                style={styles.closeButton}
                 onPress={() => setModalVisible(false)}
               >
                 <MaterialIcons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
             
-            <Text style={styles.inputLabel}>Event Title</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g., Gym Session, Meeting"
-              value={newEvent.title}
-              onChangeText={(text) => setNewEvent({...newEvent, title: text})}
-            />
-            
-            <View style={styles.inputRow}>
-              <View style={styles.inputHalf}>
-                <Text style={styles.inputLabel}>Start Time</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="HH:MM"
-                  value={newEvent.startTime}
-                  onChangeText={(text) => setNewEvent({...newEvent, startTime: text})}
-                />
+            <ScrollView style={styles.modalBody}>
+              <Text style={styles.inputLabel}>Event Title</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter event title"
+                value={newEvent.title}
+                onChangeText={(text) => setNewEvent({...newEvent, title: text})}
+              />
+              
+              <Text style={styles.inputLabel}>Description (optional)</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Enter event description"
+                multiline={true}
+                numberOfLines={3}
+                value={newEvent.description}
+                onChangeText={(text) => setNewEvent({...newEvent, description: text})}
+              />
+              
+              <Text style={styles.inputLabel}>Event Type</Text>
+              <View style={styles.eventTypeSelector}>
+                {['event', 'workout', 'meal', 'meeting'].map(type => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[
+                      styles.eventTypeOption,
+                      newEvent.type === type && styles.selectedEventType
+                    ]}
+                    onPress={() => setNewEvent({...newEvent, type: type})}
+                  >
+                    <MaterialIcons 
+                      name={
+                        type === 'workout' ? 'fitness-center' :
+                        type === 'meal' ? 'restaurant' :
+                        type === 'meeting' ? 'work' : 'event'
+                      } 
+                      size={18} 
+                      color={newEvent.type === type ? "#fff" : "#555"} 
+                    />
+                    <Text style={[
+                      styles.eventTypeText,
+                      newEvent.type === type && styles.selectedEventTypeText
+                    ]}>
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
               
-              <View style={styles.inputHalf}>
-                <Text style={styles.inputLabel}>End Time</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="HH:MM"
-                  value={newEvent.endTime}
-                  onChangeText={(text) => setNewEvent({...newEvent, endTime: text})}
-                />
+              <View style={styles.timeInputsContainer}>
+                <View style={styles.timeInputWrapper}>
+                  <Text style={styles.inputLabel}>Start Time</Text>
+                  <TextInput
+                    style={styles.timeInput}
+                    placeholder="HH:MM"
+                    value={newEvent.startTime}
+                    onChangeText={(text) => setNewEvent({...newEvent, startTime: text})}
+                  />
+                </View>
+                
+                <View style={styles.timeInputWrapper}>
+                  <Text style={styles.inputLabel}>End Time</Text>
+                  <TextInput
+                    style={styles.timeInput}
+                    placeholder="HH:MM"
+                    value={newEvent.endTime}
+                    onChangeText={(text) => setNewEvent({...newEvent, endTime: text})}
+                  />
+                </View>
               </View>
-            </View>
-            
-            <Text style={styles.selectedDateText}>
-              Date: {new Date(selectedDate).toDateString()}
-            </Text>
-            
-            <TouchableOpacity 
-              style={styles.addEventButton}
-              onPress={handleAddEvent}
-            >
-              <Text style={styles.addEventButtonText}>Add Event</Text>
-            </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={handleAddEvent}
+              >
+                <Text style={styles.addButtonText}>Add Event</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -278,10 +399,19 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F7FA',
   },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#555',
+  },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 15,
@@ -291,40 +421,35 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
   },
-  filterButton: {
+  addButton: {
+    backgroundColor: '#4285F4',
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1.41,
   },
   calendarContainer: {
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    borderRadius: 15,
-    paddingVertical: 10,
-    elevation: 2,
+    borderRadius: 12,
+    marginHorizontal: 15,
+    marginBottom: 15,
+    padding: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 3.84,
+    shadowRadius: 2,
+    elevation: 2,
   },
   eventsContainer: {
     flex: 1,
-    marginTop: 20,
-    paddingHorizontal: 20,
+    paddingHorizontal: 15,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: '#333',
-    marginBottom: 10,
+    marginBottom: 15,
   },
   eventsList: {
     flex: 1,
@@ -333,23 +458,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 15,
-    paddingVertical: 12,
-    paddingHorizontal: 15,
+    borderRadius: 12,
+    padding: 15,
     marginBottom: 10,
-    elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 2.22,
+    shadowRadius: 2,
+    elevation: 2,
   },
   eventCheckbox: {
-    marginRight: 10,
+    marginRight: 12,
   },
   checkbox: {
     width: 24,
     height: 24,
-    borderRadius: 4,
+    borderRadius: 12,
     borderWidth: 2,
     borderColor: '#4285F4',
     justifyContent: 'center',
@@ -363,9 +487,9 @@ const styles = StyleSheet.create({
   },
   eventTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#333',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   eventTitleCompleted: {
     textDecorationLine: 'line-through',
@@ -374,6 +498,11 @@ const styles = StyleSheet.create({
   eventTime: {
     fontSize: 14,
     color: '#666',
+    marginBottom: 4,
+  },
+  eventDescription: {
+    fontSize: 12,
+    color: '#888',
   },
   eventDeleteButton: {
     padding: 5,
@@ -381,28 +510,23 @@ const styles = StyleSheet.create({
   noEventsContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 50,
+    paddingVertical: 30,
   },
   noEventsText: {
     fontSize: 16,
     color: '#999',
     marginTop: 10,
+    marginBottom: 20,
   },
-  addButton: {
-    position: 'absolute',
-    right: 20,
-    bottom: 20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+  addEventButtonEmpty: {
     backgroundColor: '#4285F4',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3.84,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 25,
+  },
+  addEventButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '500',
   },
   modalOverlay: {
     flex: 1,
@@ -413,59 +537,103 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 20,
+    maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    justifyContent: 'space-between',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '600',
     color: '#333',
   },
+  closeButton: {
+    padding: 5,
+  },
+  modalBody: {
+    padding: 15,
+  },
   inputLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
-    color: '#333',
+    color: '#666',
     marginBottom: 5,
+    marginTop: 10,
   },
   input: {
     backgroundColor: '#F5F7FA',
     borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: '#333',
     borderWidth: 1,
     borderColor: '#E0E0E0',
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    fontSize: 16,
-    marginBottom: 15,
   },
-  inputRow: {
+  textArea: {
+    height: 80,
+    textAlignVertical: 'top',
+  },
+  timeInputsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginTop: 10,
   },
-  inputHalf: {
+  timeInputWrapper: {
     width: '48%',
   },
-  selectedDateText: {
+  timeInput: {
+    backgroundColor: '#F5F7FA',
+    borderRadius: 8,
+    padding: 12,
     fontSize: 16,
-    color: '#4285F4',
-    fontWeight: '500',
-    marginBottom: 20,
+    color: '#333',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
   },
-  addEventButton: {
+  addButton: {
     backgroundColor: '#4285F4',
-    paddingVertical: 15,
-    borderRadius: 10,
+    borderRadius: 8,
+    padding: 15,
     alignItems: 'center',
+    marginTop: 20,
   },
-  addEventButtonText: {
+  addButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
+  },
+  eventTypeSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 5,
+    marginBottom: 10,
+  },
+  eventTypeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F0F0',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  selectedEventType: {
+    backgroundColor: '#4285F4',
+  },
+  eventTypeText: {
+    fontSize: 14,
+    color: '#555',
+    marginLeft: 5,
+  },
+  selectedEventTypeText: {
+    color: '#FFFFFF',
   },
 });
 

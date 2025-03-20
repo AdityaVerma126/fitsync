@@ -1,186 +1,390 @@
-import React, { useContext } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Image,
   TouchableOpacity,
-  Image
+  ActivityIndicator,
+  RefreshControl
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { AuthContext } from '../contexts/AuthContext';
+import { LineChart } from 'react-native-chart-kit';
+import { Dimensions } from 'react-native';
+import * as Progress from 'react-native-progress';
+import { useNavigation } from '@react-navigation/native';
+import mongoService from '../services/mongoService';
 
-const HomeScreen = ({ navigation }) => {
-  const { userInfo } = useContext(AuthContext);
+const screenWidth = Dimensions.get('window').width;
 
-  // Mocked data for demonstration
-  const achievements = [
-    { id: 1, name: '5-Day Streak', icon: 'whatshot' },
-    { id: 2, name: 'Goal Achieved', icon: 'emoji-events' },
-    { id: 3, name: 'Early Bird', icon: 'star' },
-  ];
+const HomeScreen = () => {
+  const navigation = useNavigation();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [userName, setUserName] = useState('');
+  const [todaysEvents, setTodaysEvents] = useState([]);
+  const [completedEvents, setCompletedEvents] = useState(0);
+  const [totalEvents, setTotalEvents] = useState(0);
 
-  const schedule = [
-    { 
-      id: 1, 
-      type: 'workout', 
-      title: 'Morning Workout', 
-      time: '6:00 AM - 7:00 AM', 
-      icon: 'fitness-center' 
-    },
-    { 
-      id: 2, 
-      type: 'meeting', 
-      title: 'Team Meeting', 
-      time: '3:00 PM - 4:00 PM', 
-      icon: 'work' 
-    },
-    { 
-      id: 3, 
-      type: 'meal', 
-      title: 'Meal Prep', 
-      time: '7:00 PM - 8:00 PM', 
-      icon: 'restaurant' 
+  useEffect(() => {
+    fetchUserData();
+    fetchTodaysEvents();
+  }, []);
+
+  const fetchUserData = async () => {
+    try {
+      const userData = await mongoService.getUserProfile();
+      setUserName(userData.name || 'User');
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+      setUserName('User');
     }
-  ];
+  };
+
+  const fetchTodaysEvents = async () => {
+    try {
+      setLoading(true);
+      const events = await mongoService.getEvents();
+      
+      if (!Array.isArray(events)) {
+        console.error('Events data is not an array:', events);
+        setTodaysEvents([]);
+        setTotalEvents(0);
+        setCompletedEvents(0);
+        setLoading(false);
+        return;
+      }
+      
+      // Filter today's events
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      const filtered = events.filter(event => {
+        if (!event.date) return false;
+        
+        const eventDate = new Date(event.date);
+        eventDate.setHours(0, 0, 0, 0);
+        return eventDate.getTime() === today.getTime();
+      });
+      
+      // Sort by start time
+      filtered.sort((a, b) => {
+        if (!a.startTime) return 1;
+        if (!b.startTime) return -1;
+        return String(a.startTime).localeCompare(String(b.startTime));
+      });
+      
+      setTodaysEvents(filtered);
+      setTotalEvents(filtered.length);
+      setCompletedEvents(filtered.filter(event => event.completed).length);
+    } catch (error) {
+      console.error('Error fetching today\'s events:', error);
+      setTodaysEvents([]);
+      setTotalEvents(0);
+      setCompletedEvents(0);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchUserData();
+    await fetchTodaysEvents();
+    setRefreshing(false);
+  };
+
+  const handleEventToggle = async (event) => {
+    try {
+      const updatedEvent = { ...event, completed: !event.completed };
+      await mongoService.updateEvent(event._id, updatedEvent);
+      
+      // Update local state
+      setTodaysEvents(prevEvents => 
+        prevEvents.map(e => e._id === event._id ? updatedEvent : e)
+      );
+      
+      // Update completion count
+      if (updatedEvent.completed) {
+        setCompletedEvents(prev => prev + 1);
+      } else {
+        setCompletedEvents(prev => prev - 1);
+      }
+    } catch (error) {
+      console.error('Error updating event:', error);
+    }
+  };
+
+  const navigateToSchedule = () => {
+    navigation.navigate('Schedule');
+  };
+
+  const getEventTypeFromTitle = (event) => {
+    const title = event.title.toLowerCase();
+    const type = event.type || 'event';
+    
+    if (type) {
+      return type.toLowerCase();
+    }
+    
+    // Fallback detection based on title
+    if (title.includes('workout') || title.includes('gym') || title.includes('exercise') || title.includes('training')) {
+      return 'workout';
+    } else if (title.includes('meal') || title.includes('lunch') || title.includes('dinner') || title.includes('breakfast') || title.includes('eat')) {
+      return 'meal';
+    } else if (title.includes('meeting') || title.includes('call') || title.includes('conference') || title.includes('appointment')) {
+      return 'meeting';
+    }
+    
+    return 'event';
+  };
+
+  const getEventIcon = (event) => {
+    const eventType = getEventTypeFromTitle(event);
+    
+    switch (eventType) {
+      case 'workout':
+        return {
+          icon: <MaterialIcons name="fitness-center" size={24} color="#fff" />,
+          color: '#FF5252'
+        };
+      case 'meal':
+        return {
+          icon: <MaterialIcons name="restaurant" size={24} color="#fff" />,
+          color: '#4CAF50'
+        };
+      case 'meeting':
+        return {
+          icon: <MaterialIcons name="work" size={24} color="#fff" />,
+          color: '#448AFF'
+        };
+      default:
+        return {
+          icon: <MaterialIcons name="event" size={24} color="#fff" />,
+          color: '#9C27B0'
+        };
+    }
+  };
+
+  const data = {
+    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    datasets: [
+      {
+        data: [60, 65, 70, 65, 60, 68, 75],
+        color: (opacity = 1) => `rgba(66, 133, 244, ${opacity})`,
+        strokeWidth: 2
+      }
+    ]
+  };
+
+  const chartConfig = {
+    backgroundGradientFrom: '#fff',
+    backgroundGradientTo: '#fff',
+    color: (opacity = 1) => `rgba(66, 133, 244, ${opacity})`,
+    strokeWidth: 2,
+    decimalPlaces: 0,
+    style: {
+      borderRadius: 16
+    },
+    propsForDots: {
+      r: '5',
+      strokeWidth: '2',
+      stroke: '#4285F4'
+    }
+  };
+
+  const renderEventsList = () => {
+    if (loading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4A90E2" />
+          <Text style={styles.loadingText}>Loading your schedule...</Text>
+        </View>
+      );
+    }
+
+    if (todaysEvents.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <MaterialIcons name="event-busy" size={64} color="#DDD" />
+          <Text style={styles.emptyText}>No events scheduled for today</Text>
+          <TouchableOpacity 
+            style={styles.addEventButton}
+            onPress={navigateToSchedule}
+          >
+            <Text style={styles.addEventButtonText}>Add Event</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.eventsContainer}>
+        {todaysEvents.map((event, index) => {
+          const { icon, color } = getEventIcon(event);
+          
+          return (
+            <TouchableOpacity 
+              key={event._id || index} 
+              style={styles.eventItem}
+              onPress={() => handleEventToggle(event)}
+            >
+              <View style={[styles.eventIconContainer, { backgroundColor: color }]}>
+                {icon}
+              </View>
+              
+              <View style={styles.eventContent}>
+                <Text style={[
+                  styles.eventTitle,
+                  event.completed && styles.eventCompleted
+                ]}>
+                  {event.title}
+                </Text>
+                
+                <Text style={styles.eventTime}>
+                  {event.startTime || '00:00'} - {event.endTime || '00:00'}
+                </Text>
+                
+                {event.description ? (
+                  <Text style={styles.eventDescription} numberOfLines={1}>
+                    {event.description}
+                  </Text>
+                ) : null}
+              </View>
+              
+              <View style={styles.eventStatus}>
+                <View style={[
+                  styles.statusIndicator, 
+                  event.completed ? styles.statusCompleted : styles.statusPending
+                ]}>
+                  {event.completed ? (
+                    <MaterialIcons name="check" size={16} color="#fff" />
+                  ) : null}
+                </View>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+        
+        <TouchableOpacity 
+          style={styles.viewAllButton}
+          onPress={navigateToSchedule}
+        >
+          <Text style={styles.viewAllText}>View Full Schedule</Text>
+          <MaterialIcons name="chevron-right" size={20} color="#4285F4" />
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
       
-      <ScrollView>
+      <ScrollView 
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         <View style={styles.header}>
-          <View style={styles.userInfo}>
+          <View>
+            <Text style={styles.greeting}>Hello, {userName}!</Text>
+            <Text style={styles.date}>{new Date().toDateString()}</Text>
+          </View>
+          <TouchableOpacity style={styles.profileButton}>
             <Image 
-              source={{ uri: 'https://randomuser.me/api/portraits/men/36.jpg' }} 
-              style={styles.avatar} 
+              source={{ uri: 'https://ui-avatars.com/api/?name=User&background=4285F4&color=fff' }} 
+              style={styles.profileImage}
             />
-            <View>
-              <Text style={styles.greeting}>Hello,</Text>
-              <Text style={styles.username}>{userInfo?.name || 'User'}</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.statsContainer}>
+          <View style={styles.statCard}>
+            <View style={styles.statIconContainer}>
+              <MaterialCommunityIcons name="fire" size={24} color="#FF6B6B" />
+            </View>
+            <View style={styles.statInfo}>
+              <Text style={styles.statValue}>1,204</Text>
+              <Text style={styles.statLabel}>Calories</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.notificationButton}>
-            <MaterialIcons name="notifications" size={24} color="#333" />
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationCount}>2</Text>
+          
+          <View style={styles.statCard}>
+            <View style={[styles.statIconContainer, { backgroundColor: '#E3F2FD' }]}>
+              <MaterialCommunityIcons name="shoe-print" size={24} color="#2196F3" />
             </View>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.quickAccessContainer}>
-          <TouchableOpacity 
-            style={styles.quickAccessItem}
-            onPress={() => navigation.navigate('Diet')}
-          >
-            <MaterialIcons name="restaurant" size={24} color="#4285F4" />
-            <Text style={styles.quickAccessText}>Diet</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.quickAccessItem}
-            onPress={() => navigation.navigate('Exercise')}
-          >
-            <MaterialCommunityIcons name="weight-lifter" size={24} color="#4CAF50" />
-            <Text style={styles.quickAccessText}>Exercise</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.quickAccessItem}
-            onPress={() => navigation.navigate('Schedule')}
-          >
-            <MaterialIcons name="event" size={24} color="#9C27B0" />
-            <Text style={styles.quickAccessText}>Schedule</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Your Achievements</Text>
-          <View style={styles.achievementsContainer}>
-            {achievements.map((achievement) => (
-              <View key={achievement.id} style={styles.achievementItem}>
-                <MaterialIcons 
-                  name={achievement.icon} 
-                  size={24} 
-                  color={achievement.id === 1 ? '#FFA000' : achievement.id === 2 ? '#FFD700' : '#2196F3'} 
-                />
-                <Text style={styles.achievementText}>{achievement.name}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.sectionContainer}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Today's Schedule</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Schedule')}>
-              <Text style={styles.seeAllText}>See All</Text>
-            </TouchableOpacity>
+            <View style={styles.statInfo}>
+              <Text style={styles.statValue}>8,546</Text>
+              <Text style={styles.statLabel}>Steps</Text>
+            </View>
           </View>
           
-          <View style={styles.scheduleContainer}>
-            {schedule.map((item) => (
-              <View key={item.id} style={styles.scheduleItem}>
-                <View style={[
-                  styles.scheduleIconContainer, 
-                  { 
-                    backgroundColor: 
-                      item.type === 'workout' ? '#E8F5E9' : 
-                      item.type === 'meeting' ? '#E3F2FD' : 
-                      '#FFF3E0'
-                  }
-                ]}>
-                  <MaterialIcons 
-                    name={item.icon} 
-                    size={20} 
-                    color={
-                      item.type === 'workout' ? '#4CAF50' : 
-                      item.type === 'meeting' ? '#2196F3' : 
-                      '#FF9800'
-                    } 
-                  />
-                </View>
-                <View style={styles.scheduleInfo}>
-                  <Text style={styles.scheduleTitle}>{item.title}</Text>
-                  <Text style={styles.scheduleTime}>{item.time}</Text>
-                </View>
-              </View>
-            ))}
+          <View style={styles.statCard}>
+            <View style={[styles.statIconContainer, { backgroundColor: '#E8F5E9' }]}>
+              <MaterialIcons name="timer" size={24} color="#4CAF50" />
+            </View>
+            <View style={styles.statInfo}>
+              <Text style={styles.statValue}>32</Text>
+              <Text style={styles.statLabel}>Minutes</Text>
+            </View>
           </View>
         </View>
-
-        <View style={styles.sectionContainer}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Your Progress</Text>
+        
+        <View style={styles.chartCard}>
+          <View style={styles.chartHeader}>
+            <Text style={styles.chartTitle}>Weekly Progress</Text>
             <TouchableOpacity>
-              <Text style={styles.seeAllText}>Details</Text>
+              <Text style={styles.chartAction}>See More</Text>
             </TouchableOpacity>
           </View>
-          
+          <LineChart
+            data={data}
+            width={screenWidth - 50}
+            height={180}
+            chartConfig={chartConfig}
+            bezier
+            style={styles.chart}
+          />
+        </View>
+        
+        <View style={styles.progressSection}>
+          <Text style={styles.sectionTitle}>Today's Progress</Text>
           <View style={styles.progressContainer}>
-            <View style={styles.progressItem}>
-              <View style={styles.progressCircle}>
-                <Text style={styles.progressValue}>75%</Text>
-              </View>
-              <Text style={styles.progressLabel}>Weekly Goal</Text>
+            <View style={styles.progressInfo}>
+              <Text style={styles.progressValue}>
+                {Math.round((completedEvents / Math.max(totalEvents, 1)) * 100)}%
+              </Text>
+              <Text style={styles.progressLabel}>Completed</Text>
             </View>
-            
-            <View style={styles.progressItem}>
-              <View style={styles.progressCircle}>
-                <Text style={styles.progressValue}>3/5</Text>
-              </View>
-              <Text style={styles.progressLabel}>Workouts</Text>
-            </View>
-            
-            <View style={styles.progressItem}>
-              <View style={styles.progressCircle}>
-                <Text style={styles.progressValue}>1850</Text>
-              </View>
-              <Text style={styles.progressLabel}>Calories</Text>
+            <View style={styles.progressBarContainer}>
+              <Progress.Bar 
+                progress={totalEvents ? completedEvents / totalEvents : 0} 
+                width={200} 
+                height={12}
+                color="#4285F4"
+                unfilledColor="#E0E0E0"
+                borderWidth={0}
+                borderRadius={6}
+              />
+              <Text style={styles.progressText}>
+                {completedEvents}/{totalEvents} tasks
+              </Text>
             </View>
           </View>
+        </View>
+        
+        <View style={styles.scheduleSection}>
+          <Text style={styles.sectionTitle}>Today's Schedule</Text>
+          {renderEventsList()}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -192,192 +396,266 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F7FA',
   },
+  scrollView: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 15,
-  },
-  userInfo: {
-    flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 10,
+    marginBottom: 20,
   },
-  avatar: {
+  greeting: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  date: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
+  },
+  profileButton: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    marginRight: 12,
+    overflow: 'hidden',
   },
-  greeting: {
-    fontSize: 14,
-    color: '#666',
+  profileImage: {
+    width: '100%',
+    height: '100%',
   },
-  username: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
   },
-  notificationButton: {
+  statCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    width: '31%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  statIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FFECEF',
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1.41,
+    marginRight: 8,
   },
-  notificationBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: '#FF5252',
-    borderRadius: 10,
-    width: 16,
-    height: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  notificationCount: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  quickAccessContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginTop: 10,
-    borderRadius: 15,
-    paddingVertical: 15,
-    paddingHorizontal: 10,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-  },
-  quickAccessItem: {
+  statInfo: {
     flex: 1,
-    alignItems: 'center',
   },
-  quickAccessText: {
-    marginTop: 5,
+  statValue: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: 'bold',
     color: '#333',
   },
-  sectionContainer: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginTop: 20,
-    borderRadius: 15,
-    paddingVertical: 15,
-    paddingHorizontal: 15,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
+  statLabel: {
+    fontSize: 10,
+    color: '#666',
   },
-  sectionHeader: {
+  chartCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 15,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  chartHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 15,
+  },
+  chartTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+  },
+  chartAction: {
+    fontSize: 14,
+    color: '#4285F4',
+  },
+  chart: {
+    marginLeft: -15,
+    borderRadius: 16,
+  },
+  progressSection: {
+    marginBottom: 20,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: '#333',
-  },
-  seeAllText: {
-    fontSize: 14,
-    color: '#4285F4',
-    fontWeight: '500',
-  },
-  achievementsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 5,
-  },
-  achievementItem: {
-    alignItems: 'center',
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: '#F8F9FA',
-    width: '30%',
-  },
-  achievementText: {
-    fontSize: 12,
-    color: '#333',
-    fontWeight: '500',
-    marginTop: 5,
-    textAlign: 'center',
-  },
-  scheduleContainer: {
-    marginTop: 5,
-  },
-  scheduleItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  scheduleIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  scheduleInfo: {
-    flex: 1,
-  },
-  scheduleTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
-  },
-  scheduleTime: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
+    marginBottom: 15,
   },
   progressContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 10,
-  },
-  progressItem: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 15,
     alignItems: 'center',
-    width: '30%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  progressCircle: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    borderWidth: 5,
-    borderColor: '#4285F4',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 5,
+  progressInfo: {
+    marginRight: 20,
   },
   progressValue: {
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#4285F4',
   },
   progressLabel: {
     fontSize: 14,
     color: '#666',
+  },
+  progressBarContainer: {
+    flex: 1,
+  },
+  progressText: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 5,
+    textAlign: 'right',
+  },
+  scheduleSection: {
+    marginBottom: 40,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: '#666',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  addEventButton: {
+    backgroundColor: '#4285F4',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 25,
+  },
+  addEventButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '500',
+  },
+  eventsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  eventItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  eventIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  eventContent: {
+    flex: 1,
+  },
+  eventTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+    marginBottom: 4,
+  },
+  eventCompleted: {
+    textDecorationLine: 'line-through',
+    color: '#999',
+  },
+  eventTime: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 2,
+  },
+  eventDescription: {
+    fontSize: 12,
+    color: '#888',
+  },
+  eventStatus: {
+    marginLeft: 10,
+  },
+  statusIndicator: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  statusPending: {
+    borderWidth: 2,
+    borderColor: '#DDDDDD',
+  },
+  statusCompleted: {
+    backgroundColor: '#4CAF50',
+  },
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 15,
+    paddingVertical: 10,
+  },
+  viewAllText: {
+    fontSize: 14,
+    color: '#4285F4',
+    fontWeight: '500',
+    marginRight: 5,
   },
 });
 

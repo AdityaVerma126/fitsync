@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const bodyParser = require('body-parser');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 const JWT_SECRET = 'fitsync-secret-key';
 
 // Middleware
@@ -65,9 +65,11 @@ const eventSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   title: { type: String, required: true },
   description: { type: String },
-  startTime: { type: Date, required: true },
-  endTime: { type: Date },
-  date: { type: Date, required: true }
+  startTime: { type: String },
+  endTime: { type: String },
+  date: { type: Date, required: true },
+  type: { type: String },
+  completed: { type: Boolean, default: false }
 });
 
 const Event = mongoose.model('Event', eventSchema);
@@ -164,6 +166,22 @@ const auth = async (req, res, next) => {
     res.status(401).json({ message: 'Not authorized' });
   }
 };
+
+// User routes
+app.get('/api/users/profile', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    res.json(user);
+  } catch (error) {
+    console.error('Error fetching user profile:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 // Exercise Routes
 app.get('/api/exercises', auth, async (req, res) => {
@@ -308,7 +326,11 @@ app.get('/api/events', auth, async (req, res) => {
 
 app.post('/api/events', auth, async (req, res) => {
   try {
-    const { title, description, startTime, endTime, date } = req.body;
+    const { title, description, startTime, endTime, date, type, completed } = req.body;
+    
+    if (!title || !date) {
+      return res.status(400).json({ message: 'Title and date are required fields' });
+    }
     
     const event = new Event({
       userId: req.userId,
@@ -316,11 +338,42 @@ app.post('/api/events', auth, async (req, res) => {
       description,
       startTime,
       endTime,
-      date
+      date: new Date(date),
+      type,
+      completed: completed || false
     });
     
     await event.save();
     res.status(201).json(event);
+  } catch (error) {
+    console.error('Error adding event:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+app.put('/api/events/:id', auth, async (req, res) => {
+  try {
+    const { title, description, startTime, endTime, date, type, completed } = req.body;
+    
+    const event = await Event.findOneAndUpdate(
+      { _id: req.params.id, userId: req.userId },
+      { 
+        title, 
+        description, 
+        startTime, 
+        endTime, 
+        date, 
+        type,
+        completed
+      },
+      { new: true }
+    );
+    
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found' });
+    }
+    
+    res.json(event);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
