@@ -1,50 +1,74 @@
-# Welcome to your Expo app 👋
+# FitSync - Fitness Tracking Mobile App 💪
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+FitSync is a comprehensive fitness tracking application built with React Native and Expo, featuring user authentication, exercise tracking, diet monitoring, and schedule management.
 
-## Get started
+## Features
 
-1. Install dependencies
+- **User Authentication**: Secure login and registration system
+- **Home Dashboard**: Overview of your fitness journey with quick access to all features
+- **Exercise Tracking**: Add, update, and track your workouts with timers
+- **Diet Monitoring**: Record meals and track calorie intake
+- **Schedule Management**: Calendar view to plan and manage your fitness events
+- **Profile Management**: Personalized user profile with statistics and settings
 
+## Get Started
+
+### Client Setup (React Native App)
+
+1. Install dependencies:
    ```bash
    npm install
    ```
 
-2. Start the app
-
+2. Start the app:
    ```bash
-    npx expo start
+   npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+3. Open the app using one of the following:
+   - Press `a` to open on Android emulator
+   - Press `i` to open on iOS simulator
+   - Scan the QR code with the Expo Go app on your device
+   - Press `w` to open in a web browser
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### Server Setup (MongoDB + Express)
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+1. Make sure MongoDB is installed and running on your machine
+   - If not installed, download from [mongodb.com](https://www.mongodb.com/try/download/community)
+   - Start MongoDB service on your machine
 
-## Get a fresh project
+2. Install server dependencies:
+   ```bash
+   cd server
+   npm install
+   ```
 
-When you're ready, run:
+3. Start the server:
+   ```bash
+   cd server
+   npm start
+   ```
 
-```bash
-npm run reset-project
-```
+## Configuration
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+- The MongoDB connection is configured in `server/index.js`
+- The API endpoint configuration is in `src/services/mongoService.js` 
+  - For Android emulator, it's set to `http://10.0.2.2:5000`
+  - For iOS simulator or physical device, update to your machine's IP address
 
-## Learn more
+## Technologies Used
 
-To learn more about developing your project with Expo, look at the following resources:
+- **Frontend**: React Native, Expo, React Navigation
+- **Backend**: Express.js, MongoDB
+- **Authentication**: JWT, bcrypt for password hashing
+- **Storage**: Expo SecureStore for token storage
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Development Notes
 
-## Join the community
+- For real-world deployment, consider using environment variables for sensitive information
+- The server is configured for local development; additional setup would be required for production deployment
+- The current implementation uses a very basic MongoDB setup; consider adding more robust data validation and error handling for production
 
-Join our community of developers creating universal apps.
+## License
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+This project is open source and available under the MIT License.
