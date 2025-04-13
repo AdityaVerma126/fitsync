@@ -9,30 +9,53 @@ export const AuthProvider = ({ children }) => {
   const [userToken, setUserToken] = useState(null);
   const [userInfo, setUserInfo] = useState(null);
 
-  const login = async (email, password) => {
-    setIsLoading(true);
+  const login = async (credentials) => {
     try {
-      const response = await mongoService.login(email, password);
-      setUserToken(response.token);
-      setUserInfo(response.user);
-      await SecureStore.setItemAsync('userToken', response.token);
-      await SecureStore.setItemAsync('userInfo', JSON.stringify(response.user));
+      setIsLoading(true);
+      const response = await mongoService.login(credentials);
+      
+      if (response && response.token && response.user) {
+        setUserToken(response.token);
+        setUserInfo(response.user);
+        // Any other state updates needed
+      } else {
+        throw new Error('Invalid response from server');
+      }
+      
+      return response;
     } catch (error) {
-      console.log('Login error:', error);
-      throw error;
+      console.log('Login error in context:', error);
+      throw error; // Re-throw to let the component handle UI feedback
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Always set loading to false
     }
   };
 
-  const register = async (name, email, password) => {
+  const register = async (userData) => {
     setIsLoading(true);
     try {
-      const response = await mongoService.register(name, email, password);
-      setUserToken(response.token);
-      setUserInfo(response.user);
-      await SecureStore.setItemAsync('userToken', response.token);
-      await SecureStore.setItemAsync('userInfo', JSON.stringify(response.user));
+      // Create a proper user data object if separate parameters are passed
+      let formattedUserData = userData;
+      
+      // If separate parameters are passed (name, email, password)
+      if (arguments.length === 3) {
+        formattedUserData = {
+          name: arguments[0],
+          email: arguments[1],
+          password: arguments[2]
+        };
+      }
+      
+      const response = await mongoService.register(formattedUserData);
+      
+      if (response && response.token && response.user) {
+        setUserToken(response.token);
+        setUserInfo(response.user);
+      } else {
+        throw new Error('Invalid response from server');
+      }
+      
+      return response;
     } catch (error) {
       console.log('Registration error:', error);
       throw error;

@@ -18,8 +18,47 @@ const LoginScreen = ({ navigation }) => {
   const [password, setPassword] = useState('');
   const { login, isLoading } = useContext(AuthContext);
 
-  const handleLogin = () => {
-    login(email, password);
+  const handleLogin = async () => {
+    if (!email || !password) {
+      // Show validation error
+      setError('Email and password are required');
+      return;
+    }
+    
+    try {
+      setIsLoading(true); // Make sure this state variable is defined in your component
+      setError('');
+      
+      // Create a proper credentials object
+      const credentials = {
+        email: email.trim().toLowerCase(),
+        password: password
+      };
+      
+      console.log('Submitting login with email:', credentials.email);
+      
+      // Call the login function with the credentials object
+      const response = await mongoService.login(credentials);
+      
+      // If we get here, login was successful
+      console.log('Login successful, navigating to main app');
+      
+      // Make sure to set loading to false before navigating
+      setIsLoading(false);
+      
+      // Your navigation logic here
+    } catch (error) {
+      // Always set loading to false in case of error
+      setIsLoading(false);
+      
+      // Display the error message from the server if available
+      if (error.message) {
+        setError(error.message);
+      } else {
+        setError('Login failed. Please check your credentials and try again.');
+      }
+      console.error('Login error:', error);
+    }
   };
 
   return (

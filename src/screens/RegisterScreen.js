@@ -13,6 +13,8 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { AuthContext } from '../contexts/AuthContext';
 import { MaterialIcons } from '@expo/vector-icons';
+// Remove this import as we're using the register function from AuthContext
+// import mongoService from '../services/mongoService';
 
 const RegisterScreen = ({ navigation }) => {
   const [name, setName] = useState('');
@@ -22,11 +24,34 @@ const RegisterScreen = ({ navigation }) => {
   const { register, isLoading } = useContext(AuthContext);
   
   const handleRegister = () => {
+    // Validate inputs first
+    if (!name || !email || !password) {
+      alert('Please fill in all required fields');
+      return;
+    }
+    
     if (password !== confirmPassword) {
       alert('Passwords do not match');
       return;
     }
-    register(name, email, password);
+    
+    // Create a proper user data object
+    const userData = {
+      name: name,
+      email: email,
+      password: password
+    };
+    
+    // Use the register function from AuthContext
+    register(userData)
+      .then(() => {
+        // Navigate to login on success
+        navigation.navigate('Login');
+      })
+      .catch(error => {
+        // Show error message
+        alert(error.message || 'Registration failed');
+      });
   };
 
   return (
